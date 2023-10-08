@@ -2,6 +2,7 @@ package com.example.rentenv;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -31,7 +32,6 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay;
 
 import java.util.ArrayList;
 
-
 public class Mapa extends AppCompatActivity {
     private static final int REQUEST_PERMISSIONS_CODE = 1;
     TextView distanceTextView;
@@ -58,13 +58,11 @@ public class Mapa extends AppCompatActivity {
         // Inicializa o mapa
         mapView = findViewById(R.id.map);
         mapView.setTileSource(TileSourceFactory.MAPNIK);
-        //mapView.setBuiltInZoomControls(true); // DEPRECADA
         mapView.getController().setZoom(18.0);
         mapView.setMultiTouchControls(true);
 
         // Inicialize o controlador do mapa para setar posições
         mapController = mapView.getController();
-        mapController.setCenter(startPoint);
         mapController.setZoom(18.0);
 
         // Solicita permissões de usuário (caso ainda não tenha sido concedido)
@@ -85,26 +83,35 @@ public class Mapa extends AppCompatActivity {
         myLocationOverlay.enableFollowLocation();
         mapView.getOverlays().add(myLocationOverlay);
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            // Obtém a localização atual do usuário
-            GeoPoint userLocation = myLocationOverlay.getMyLocation();
-            if (userLocation != null) {
-                // Define o centro do mapa como a localização atual do usuário
-                mapController.setCenter(userLocation);
-                // Define um nível de zoom adequado para visualizar a localização do usuário
-                mapController.setZoom(30.0); // Você pode ajustar esse valor conforme necessário
-            }
-        }
-
-        // Adiciona pontos pré-determinados (Minicampus da UFAM e Amazonas Shopping) como marcadores
-        startPoint = new GeoPoint(-3.090675, -59.963054); // Minicampus da UFAM
+        // Adiciona pontos pré-determinados (UFAM e Amazonas Shopping) como marcadores
+        startPoint = new GeoPoint(-3.090675, -59.963054); // UFAM
         endPoint = new GeoPoint(-3.093767, -60.022682); // Amazonas Shopping
 
-        // Cria um marcador no mapa: Posição 1
+        // Adiciona um marcador no mapa: Posição 1 (UFAM Setor-Norte)
         startMarker = new Marker(mapView);
         startMarker.setPosition(startPoint);
         startMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
         startMarker.setTitle("UFAM Setor-Norte");
+
+        // Adiciona um evento de clique no marcador da UFAM Setor-Norte
+        startMarker.setOnMarkerClickListener(new Marker.OnMarkerClickListener() {
+            @Override
+            public boolean onMarkerClick(Marker marker, MapView mapView) {
+                // Verifica as permissões novamente (caso o usuário as tenha negado anteriormente)
+                if (ContextCompat.checkSelfPermission(Mapa.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    // Obtém a localização atual do usuário
+                    GeoPoint userLocation = myLocationOverlay.getMyLocation();
+                    if (userLocation != null) {
+                        // Calcula a rota em uma AsyncTask
+                        new CalculateRoadTask().execute(userLocation, startPoint);
+                    }
+                }
+                return true;
+            }
+        });
+
+        // Adiciona o marcador ao mapa
+        mapView.getOverlays().add(startMarker);
 
         // Cria um marcador no mapa: Posição 2
         endMarker = new Marker(mapView);
@@ -112,32 +119,64 @@ public class Mapa extends AppCompatActivity {
         endMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
         endMarker.setTitle("Amazonas Shopping");
 
-        // adiciona marcadores (markers) ao mapa
-        mapView.getOverlays().add(startMarker);
+        // Adiciona um evento de clique no marcador do Amazonas Shopping
+        endMarker.setOnMarkerClickListener(new Marker.OnMarkerClickListener() {
+            @Override
+            public boolean onMarkerClick(Marker marker, MapView mapView) {
+                // Verifica as permissões novamente (caso o usuário as tenha negado anteriormente)
+                if (ContextCompat.checkSelfPermission(Mapa.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    // Obtém a localização atual do usuário
+                    GeoPoint userLocation = myLocationOverlay.getMyLocation();
+                    if (userLocation != null) {
+                        // Calcula a rota em uma AsyncTask
+                        new CalculateRoadTask().execute(userLocation, endPoint);
+                    }
+                }
+                return true;
+            }
+        });
+
+        // Adiciona o marcador ao mapa
         mapView.getOverlays().add(endMarker);
 
-
-        //cria uma variável pra receber eventos no mapa
-        MapEventsReceiver mReceive = new MapEventsReceiver(){
+        // Configura o evento de clique no mapa para traçar a rota: adiciona a callback de eventos ao mapa
+        MapEventsReceiver mReceive = new MapEventsReceiver() {
             @Override
             public boolean singleTapConfirmedHelper(GeoPoint geoPoint) {
                 // Verifica qual marcador foi clicado
                 if (startPoint.distanceToAsDouble(geoPoint) < 500) { // Exemplo de distância de clique
-                    // Traça a rota até o Minicampus da UFAM
-                    calculateRoad(myLocationOverlay.getMyLocation(), startMarker.getPosition());
+                    // Traça a rota até a UFAM
+                    if (ContextCompat.checkSelfPermission(Mapa.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                        // Obtém a localização atual do usuário
+                        GeoPoint userLocation = myLocationOverlay.getMyLocation();
+                        if (userLocation != null) {
+                            // Calcula a rota em uma AsyncTask
+                            new CalculateRoadTask().execute(userLocation, startPoint);
+                        }
+                    }
                     return true;
                 } else if (endPoint.distanceToAsDouble(geoPoint) < 500) { // Exemplo de distância de clique
                     // Traça a rota até o Amazonas Shopping
-                    calculateRoad(myLocationOverlay.getMyLocation(), endMarker.getPosition());
+                    if (ContextCompat.checkSelfPermission(Mapa.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                        // Obtém a localização atual do usuário
+                        GeoPoint userLocation = myLocationOverlay.getMyLocation();
+                        if (userLocation != null) {
+                            // Calcula a rota em uma AsyncTask
+                            new CalculateRoadTask().execute(userLocation, endPoint);
+                        }
+                    }
                     return true;
                 }
                 return false;
             }
+
             @Override
             public boolean longPressHelper(GeoPoint p) {
                 return false; // não realiza qualquer ação
             }
         };
+
+
 
         // Configura o evento de clique no mapa para traçar a rota: adiciona a callback de eventos ao mapa
         MapEventsOverlay mapEventsOverlay = new MapEventsOverlay(mReceive);
@@ -171,22 +210,30 @@ public class Mapa extends AppCompatActivity {
         mapView.onPause();
     }
 
-    private void calculateRoad(GeoPoint start, GeoPoint end) {
-        ArrayList<GeoPoint> waypoints = new ArrayList<>();
-        waypoints.add(start);
-        waypoints.add(end);
+    // AsyncTask para calcular a rota em segundo plano
+    private class CalculateRoadTask extends AsyncTask<GeoPoint, Void, Road> {
+        @Override
+        protected Road doInBackground(GeoPoint... params) {
+            GeoPoint start = params[0];
+            GeoPoint end = params[1];
+            ArrayList<GeoPoint> waypoints = new ArrayList<>();
+            waypoints.add(start);
+            waypoints.add(end);
+            return roadManager.getRoad(waypoints);
+        }
 
-        Road road = roadManager.getRoad(waypoints);
-        if (road.mStatus == Road.STATUS_OK) {
-            if (roadOverlay != null) {
-                mapView.getOverlays().remove(roadOverlay);
+        @Override
+        protected void onPostExecute(Road road) {
+            if (road.mStatus == Road.STATUS_OK) {
+                if (roadOverlay != null) {
+                    mapView.getOverlays().remove(roadOverlay);
+                }
+                roadOverlay = RoadManager.buildRoadOverlay(road);
+                mapView.getOverlays().add(roadOverlay);
+                mapView.invalidate();
+            } else {
+                Toast.makeText(Mapa.this, "Não foi possível calcular a rota", Toast.LENGTH_SHORT).show();
             }
-            //roadOverlay = RoadManager.buildRoadOverlay(road, this);
-            roadOverlay = RoadManager.buildRoadOverlay(road);
-            mapView.getOverlays().add(roadOverlay);
-            mapView.invalidate();
-        } else {
-            Toast.makeText(this, "Não foi possível calcular a rota", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -212,8 +259,7 @@ public class Mapa extends AppCompatActivity {
                 if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
                     // Permissão negada
                     Toast.makeText(this, "Permissão negada: " + permissions[i], Toast.LENGTH_SHORT).show();
-                }
-                else {
+                } else {
                     // Permissão cedida, recria a activity para carregar o mapa, só será executado uma vez
                     this.recreate();
                 }
@@ -221,4 +267,3 @@ public class Mapa extends AppCompatActivity {
         }
     }
 }
-
